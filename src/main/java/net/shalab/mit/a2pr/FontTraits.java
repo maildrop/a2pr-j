@@ -1,4 +1,4 @@
-// -*- coding: utf-8; compile-command: "compile.bat"; -*-
+// -*- coding: utf-8;  -*-
 
 package net.shalab.mit.a2pr;
 
@@ -103,7 +103,9 @@ public class FontTraits{
     final java.text.AttributedCharacterIterator iterator = result.getIterator();
 
     final SampleFont[] fontClasses = new SampleFont[ iterator.getEndIndex() - iterator.getBeginIndex() ];
+    // TODO: fontClasses を null で満たしておく
 
+    
     for( char c = iterator.first() ; c != DONE ; c = iterator.next() ){
       // 第一段階として、コードポイントを得る
       final int codePoint;
@@ -126,17 +128,35 @@ public class FontTraits{
       // そのコードポイントが表示可能なフォントを探す
       for(final SampleFont sf : sampleFonts ){
         if( sf.getFont().canDisplay( codePoint ) ){
-
           assert ( Character.isHighSurrogate( c ) ?
                    // サロゲートペアならば、 index は一つずれている はず。
                    ( (char_begin - iterator.getBeginIndex() + 1) ==
                      (iterator.getIndex() - iterator.getBeginIndex()) ) :
                    // 非サロゲートペアならば、これは一致するはず。
                    ( char_begin - iterator.getBeginIndex() == iterator.getIndex() - iterator.getBeginIndex() ) );
-          
-          fontClasses[ char_begin - iterator.getBeginIndex() ] = sf;
-          fontClasses[ iterator.getIndex() - iterator.getBeginIndex() ] = sf;
+
+          if(! java.lang.Character.isHighSurrogate( c ) ){
+            fontClasses[ char_begin - iterator.getBeginIndex() ] = sf;
+          }else{
+            fontClasses[ char_begin - iterator.getBeginIndex() ] = sf;
+            fontClasses[ iterator.getIndex() - iterator.getBeginIndex() ] = sf;
+          }
           break;
+        }
+      }
+
+      // そのコードポイントを表示可能なフォントが無いと判断した場合になる
+      /* TODO 一時的な回避 */
+      
+      if( fontClasses[char_begin - iterator.getBeginIndex() ] == null ){
+        logger.warning( String.format("code point(%d) : \"%s\" cannot display.",
+                                      codePoint,
+                                      java.lang.Character.getName(codePoint) ) );
+        if(! Character.isHighSurrogate( c ) ){
+          fontClasses[char_begin - iterator.getBeginIndex()] = sampleFonts.getLast();
+        }else{
+          fontClasses[char_begin - iterator.getBeginIndex()] = sampleFonts.getLast();
+          fontClasses[ iterator.getIndex() - iterator.getBeginIndex() ] = sampleFonts.getLast();
         }
       }
       assert (fontClasses[char_begin - iterator.getBeginIndex() ] != null) : "表示できるフォントが存在しない";
@@ -144,20 +164,32 @@ public class FontTraits{
     }
 
     // 連続する体裁をまとめて設定する
-    {
+    { // TODO ココ でフォントが見つからなかった場合を決定する
       int runStart = 0;
       SampleFont currentFont = fontClasses[0];
       for( int index = 0 ; index < fontClasses.length ; ++index ){
+        assert( result != null ): "result は常に null では無い" ; // この条件は、result に final 修飾されているのでチェック不要
+        assert( currentFont != null ): "現在のフォントは null では無い" ;
+        
         if( fontClasses[index] != currentFont ){
-          assert( result != null );
-          assert( currentFont != null );
           assert( currentFont.attributes != null );
-          result.addAttributes( currentFont.attributes , runStart , index );
+          assert( runStart <= index );
+          if( runStart < index ){
+            if( currentFont.attributes != null ){
+              result.addAttributes( currentFont.attributes , runStart , index );
+              currentFont = (fontClasses[index] == null) ? currentFont : fontClasses[index]; // null が混入しないように
+            }
+          }
           runStart = index;
-          currentFont = fontClasses[index];
         }
       }
-      result.addAttributes( currentFont.attributes , runStart , fontClasses.length );
+      // 残りの部分を最後に処理する
+      
+      if( runStart < fontClasses.length ){
+        if( currentFont.attributes != null ){
+          result.addAttributes( currentFont.attributes , runStart , fontClasses.length );
+        }
+      }
     }
     return result;
   }
