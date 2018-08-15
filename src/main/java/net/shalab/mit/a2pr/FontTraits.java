@@ -16,6 +16,7 @@ import static java.text.CharacterIterator.DONE;
 public class FontTraits{
   private static final java.util.logging.Logger logger =
     java.util.logging.Logger.getLogger("net.shalab.mit.a2pr");
+  
   private static class SampleFont{
     final String fontFamily;
     final Map<? extends AttributedCharacterIterator.Attribute,?> attributes;
@@ -82,7 +83,10 @@ public class FontTraits{
 
   private final Deque<SampleFont> sampleFonts;
   
-  /* コンストラクタ */
+  /* 
+     コンストラクタ 
+     TODO: コレクションで受け取るフォントファミリを作るべき？ 
+  */
   FontTraits(Map<? extends AttributedCharacterIterator.Attribute,?> baseFontAttributes)
   {
     sampleFonts = new ArrayDeque<>();
@@ -90,41 +94,63 @@ public class FontTraits{
                                      baseFontAttributes ) );
   }
 
+  /**
+     フォントファミリを追加する
+   */
   public synchronized void addFirst( String family )
   {
     assert( !sampleFonts.isEmpty() );
     sampleFonts.addFirst( sampleFonts.peekLast().deriveFontFamily( family ) );
   }
 
+
+  /**
+     String を受けて AttributedString を返す 
+     
+   */
   public synchronized AttributedString createAttributedString( final String src )
     throws java.nio.charset.CharacterCodingException{
 
+    /**
+       戻り値 AttributedString を作成する
+     */
     final AttributedString result = new AttributedString( src );
+    /**
+       result の iterator 
+     */
     final java.text.AttributedCharacterIterator iterator = result.getIterator();
 
+    /**
+       一文字ずつフォントのリファレンスを用意する。
+     */
     final SampleFont[] fontClasses = new SampleFont[ iterator.getEndIndex() - iterator.getBeginIndex() ];
-    // TODO: fontClasses を null で満たしておく
 
-    
+
     for( char c = iterator.first() ; c != DONE ; c = iterator.next() ){
       // 第一段階として、コードポイントを得る
-      final int codePoint;
 
       final int char_begin = iterator.getIndex(); // サロゲートペアを考慮したときの文字の開始位置
-      if( java.lang.Character.isHighSurrogate( c ) ){
-        logger.fine( "highSurrogate found" );
+
+      final int codePoint; // 今処理をしている文字 のコードポイント
+
+      if( !java.lang.Character.isHighSurrogate( c ) ){
+        // BMP 
+        codePoint = (int)( c ); 
+      }else{
+        // surrogate pair
         final char lowSurrogate = iterator.next();
-        if ( lowSurrogate == DONE ){
+        // high surrogate の次が DONE で終わりは入力がおかしい
+        if ( lowSurrogate == DONE ){ 
           throw new java.nio.charset.MalformedInputException(iterator.current() );
         }
+        // high surrogate と low surrogate のペアのチェック
         if( !java.lang.Character.isSurrogatePair( c , lowSurrogate ) ){
           throw new java.nio.charset.MalformedInputException(iterator.current() );
         }
         codePoint = java.lang.Character.toCodePoint( c , lowSurrogate );
-      }else{
-        codePoint = (int)( c ); // サロゲートペアではない(BMP の文字なので）ので、int に拡張
       }
 
+      
       // そのコードポイントが表示可能なフォントを探す
       for(final SampleFont sf : sampleFonts ){
         if( sf.getFont().canDisplay( codePoint ) ){
@@ -146,17 +172,18 @@ public class FontTraits{
       }
 
       // そのコードポイントを表示可能なフォントが無いと判断した場合になる
-      /* TODO 一時的な回避 */
-      
       if( fontClasses[char_begin - iterator.getBeginIndex() ] == null ){
+        /* コードポイントを表示できるフォントが無い */
         logger.warning( String.format("code point(%d) : \"%s\" cannot display.",
                                       codePoint,
                                       java.lang.Character.getName(codePoint) ) );
+        final SampleFont fallback_font = sampleFonts.getLast();
+        
         if(! Character.isHighSurrogate( c ) ){
-          fontClasses[char_begin - iterator.getBeginIndex()] = sampleFonts.getLast();
+          fontClasses[char_begin - iterator.getBeginIndex()] = fallback_font;
         }else{
-          fontClasses[char_begin - iterator.getBeginIndex()] = sampleFonts.getLast();
-          fontClasses[ iterator.getIndex() - iterator.getBeginIndex() ] = sampleFonts.getLast();
+          fontClasses[char_begin - iterator.getBeginIndex()] = fallback_font;
+          fontClasses[ iterator.getIndex() - iterator.getBeginIndex() ] = fallback_font;
         }
       }
       assert (fontClasses[char_begin - iterator.getBeginIndex() ] != null) : "表示できるフォントが存在しない";
@@ -164,7 +191,7 @@ public class FontTraits{
     }
 
     // 連続する体裁をまとめて設定する
-    { // TODO ココ でフォントが見つからなかった場合を決定する
+    { 
       int runStart = 0;
       SampleFont currentFont = fontClasses[0];
       for( int index = 0 ; index < fontClasses.length ; ++index ){
@@ -193,7 +220,6 @@ public class FontTraits{
     }
     return result;
   }
-  
   
   public static void main( String[] args ){
     final Map<AttributedCharacterIterator.Attribute, Object> attr = new HashMap<>();

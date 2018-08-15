@@ -93,7 +93,9 @@ public class PlainTextLayout{
             return patternString.toString();
           }
         }.call() );
-    FontTraits sampling_font = new FontTraits( nonAscii  );
+
+
+    final FontTraits sampling_font = new FontTraits( nonAscii  );
     sampling_font.addFirst( "Source Code Pro" );
     
     
