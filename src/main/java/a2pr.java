@@ -35,20 +35,75 @@ public final class a2pr{
         }
 
         final A2prContext context = new A2prContext();
-        context.name = file.getName();
-        context.creationDate = new Date(file.lastModified() );
-        context.jobDate = new Date();
+        {
+          context.name = file.getName();
+          context.creationDate = new Date(file.lastModified() );
+          context.jobDate = new Date();
+        }
         
         final ArrayList<String> src = new ArrayList<>();
-        try(
-            final FileInputStream fileInputStream = new FileInputStream( file );
-            final InputStreamReader inputStreamReader = new InputStreamReader( fileInputStream , "utf-8" );
-            final BufferedReader bufferedReader = new BufferedReader( inputStreamReader ) ){
-          String line;
-          while( (line = bufferedReader.readLine() ) != null ){
-            src.add( line );
-          }
-        }
+
+        try( final FileInputStream fileInputStream = new FileInputStream( file ) ){
+          // Byte Order Mark 対応
+          try( final BufferedInputStream inputStream = new BufferedInputStream( fileInputStream ) ){
+            final String streamCharacterEncode ; // 当該のファイルの使っているエンコード
+            final boolean hasByteOrderMark; // UTF-8のバイトオーダーマークが存在する場合は true 無い場合は false
+
+            if( 3 <= file.length() ){ 
+              byte bom_mark[] = new byte[3];
+              inputStream.mark(bom_mark.length);
+              {
+                final int read_size = inputStream.read( bom_mark , 0 , bom_mark.length );
+
+                if( false ){
+                  System.out.println( String.format( "read_size = %1$d : [0] = %2$s , [1] = %3$s , [2] = %4$s  , %5$s",
+                                                     read_size,
+                                                     Integer.toHexString( Byte.toUnsignedInt( bom_mark[0] ) ),
+                                                     Integer.toHexString( Byte.toUnsignedInt( bom_mark[1] ) ),
+                                                     Integer.toHexString( Byte.toUnsignedInt( bom_mark[2] ) ),
+                                                     ( Byte.toUnsignedInt(bom_mark[0]) == 0xEF &&
+                                                       Byte.toUnsignedInt(bom_mark[1]) == 0xBB &&
+                                                       Byte.toUnsignedInt(bom_mark[2]) == 0xBF ) ? "true" : "false"
+                                                     ));
+                }
+                
+                if( read_size == bom_mark.length ){
+                  hasByteOrderMark = ( Byte.toUnsignedInt(bom_mark[0]) == 0xEF &&
+                                       Byte.toUnsignedInt(bom_mark[1]) == 0xBB &&
+                                       Byte.toUnsignedInt(bom_mark[2]) == 0xBF ) ? true : false;
+                }else{
+                  hasByteOrderMark = false;
+                }
+                  
+                if( hasByteOrderMark ){ 
+                  streamCharacterEncode = "utf-8";
+                }else{
+                  // using file.encoding property.
+                  streamCharacterEncode = java.lang.System.getProperty( "file.encoding" );
+                  inputStream.reset();
+                }
+              }
+                
+            }else{ // 3byte 未満はわからないので file.encoding をそのまま使うことにする
+              streamCharacterEncode = java.lang.System.getProperty( "file.encoding" );
+              hasByteOrderMark = false;
+            }
+
+            if( false ){
+              System.out.println( String.format( "encoding = %1$s %2$s" , streamCharacterEncode , hasByteOrderMark ? ", hasByteOrder" : "" ));
+            }
+            
+            try(final InputStreamReader inputStreamReader = new InputStreamReader( inputStream , streamCharacterEncode );
+                final BufferedReader bufferedReader = new BufferedReader( inputStreamReader ) ){
+              String line;
+              while( (line = bufferedReader.readLine() ) != null ){
+                src.add( line );
+              }
+            }
+            
+          } // end of try inputStream
+        } // end of try fileInputStream
+          
         final java.awt.print.PrinterJob pj = java.awt.print.PrinterJob.getPrinterJob();
 
         pj.setPrintable( new PrintableImplement( src , new A2prConfigure(), context)) ;
