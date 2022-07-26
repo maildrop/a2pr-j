@@ -1,5 +1,3 @@
-// -*- compile-command: "javac -g -encoding utf-8 a2pr.java"; -*-
-
 import java.lang.*;
 import java.io.*;
 import java.util.*;
@@ -12,136 +10,169 @@ import javax.print.attribute.standard.MediaSize;
 import javax.print.attribute.standard.JobName;
 import javax.print.attribute.standard.MediaPrintableArea;
 
+import org.apache.commons.cli.*;
+import org.apache.commons.io.ByteOrderMark;
+import org.apache.commons.io.input.BOMInputStream;
+import org.apache.commons.lang3.StringUtils;
+
 import net.shalab.mit.a2pr.*;
+
 import static javax.print.attribute.standard.OrientationRequested.LANDSCAPE;
 
 public final class a2pr{
-  private a2pr(){};
+    private static final java.util.logging.Logger logger =
+        java.util.logging.Logger.getLogger("a2pr");
 
-  public static void jobQueueFileList(final String[] srcs,final A2prConfigure configure){
-    assert( srcs != null );
-    assert( configure != null );
-    
-    for( String path : srcs ){
-      try{
-        File file = new File( path ) ;
+    public static final org.apache.commons.cli.Options options =
+        new Object(){
+            final org.apache.commons.cli.Options cocreate(){
+                final var options = new org.apache.commons.cli.Options();
+                options.addOption( "f" , "file" , true , "target file" );
+                options.addOption( "e" , "encoding" , true , "specify a file encoding" );
+                options.addOption( null, "utf-8" , false , "specify a file encoding as utf-8" );
+                options.addOption( "h" , "help" , false , "display this help message" );
+                return options;
+            }
+        }.cocreate();
+
+    /**
+       このクラスはインスタンス化しない
+    */
+    private a2pr(){};
+
+    public static final boolean checkFileStatus( final File file ){
+        assert file != null;
         if( ! file.exists() ){
-          System.err.println( file.toString() + " is not found." );
-          continue;
-        }
-        if( ! file.canRead() ){
-          System.err.println( file.toString() + " is not readable.");
-          continue;
+            System.err.println( file.toString() + " is not found." );
+            return false;
         }
 
-        final A2prContext context = new A2prContext();
-        {
-          context.name = file.getName();
-          context.creationDate = new Date(file.lastModified() );
-          context.jobDate = new Date();
+        if( ! file.canRead() ){
+            System.err.println( file.toString() + " is not readable.");
+            return false;
+        }
+
+        return true;
+    }
+
+    public static final void jobQueueFile( final File file ,
+                                           final A2prConfigure configure ,
+                                           final java.nio.charset.Charset defaultCharset )
+        throws FileNotFoundException, IOException {
+
+        assert file != null;
+        assert configure != null;
+
+        if(! checkFileStatus( file ) ){
+            return;
         }
         
-        final ArrayList<String> src = new ArrayList<>();
-
-        try( final FileInputStream fileInputStream = new FileInputStream( file ) ){
-          // Byte Order Mark 対応
-          try( final BufferedInputStream inputStream = new BufferedInputStream( fileInputStream ) ){
-            final String streamCharacterEncode ; // 当該のファイルの使っているエンコード
-            final boolean hasByteOrderMark; // UTF-8のバイトオーダーマークが存在する場合は true 無い場合は false
-
-            if( 3 <= file.length() ){ 
-              byte bom_mark[] = new byte[3];
-              inputStream.mark(bom_mark.length);
-              {
-                final int read_size = inputStream.read( bom_mark , 0 , bom_mark.length );
-
-                if( false ){
-                  System.out.println( String.format( "read_size = %1$d : [0] = %2$s , [1] = %3$s , [2] = %4$s  , %5$s",
-                                                     read_size,
-                                                     Integer.toHexString( Byte.toUnsignedInt( bom_mark[0] ) ),
-                                                     Integer.toHexString( Byte.toUnsignedInt( bom_mark[1] ) ),
-                                                     Integer.toHexString( Byte.toUnsignedInt( bom_mark[2] ) ),
-                                                     ( Byte.toUnsignedInt(bom_mark[0]) == 0xEF &&
-                                                       Byte.toUnsignedInt(bom_mark[1]) == 0xBB &&
-                                                       Byte.toUnsignedInt(bom_mark[2]) == 0xBF ) ? "true" : "false"
-                                                     ));
-                }
-                
-                if( read_size == bom_mark.length ){
-                  hasByteOrderMark = ( Byte.toUnsignedInt(bom_mark[0]) == 0xEF &&
-                                       Byte.toUnsignedInt(bom_mark[1]) == 0xBB &&
-                                       Byte.toUnsignedInt(bom_mark[2]) == 0xBF ) ? true : false;
-                }else{
-                  hasByteOrderMark = false;
-                }
-                  
-                if( hasByteOrderMark ){ 
-                  streamCharacterEncode = "utf-8";
-                }else{
-                  // using file.encoding property.
-                  streamCharacterEncode = java.lang.System.getProperty( "file.encoding" );
-                  inputStream.reset();
-                }
-              }
-                
-            }else{ // 3byte 未満はわからないので file.encoding をそのまま使うことにする
-              streamCharacterEncode = java.lang.System.getProperty( "file.encoding" );
-              hasByteOrderMark = false;
-            }
-
-            if( false ){
-              System.out.println( String.format( "encoding = %1$s %2$s" , streamCharacterEncode , hasByteOrderMark ? ", hasByteOrder" : "" ));
+        final A2prContext context = new A2prContext()
+            .setName( file.getName() )
+            .setCreationDate( new Date( file.lastModified() ) )
+            .setJobDate( new Date() ) ;
+        final java.util.ArrayList<String> input = new java.util.ArrayList<>();
+        
+        try( final BOMInputStream bomInputStream = new BOMInputStream( new FileInputStream( file ) , true )){
+            
+            if( bomInputStream.hasBOM() ){
+                bomInputStream.skip( bomInputStream.getBOM().length() );
             }
             
-            try(final InputStreamReader inputStreamReader = new InputStreamReader( inputStream , streamCharacterEncode );
-                final BufferedReader bufferedReader = new BufferedReader( inputStreamReader ) ){
-              String line;
-              while( (line = bufferedReader.readLine() ) != null ){
-                src.add( line );
-              }
+            try( final java.io.Reader reader_ = new java.io.InputStreamReader( bomInputStream ,
+                                                                               ( bomInputStream.hasBOM() ?
+                                                                                 java.nio.charset.StandardCharsets.UTF_8 :
+                                                                                 defaultCharset  ));
+                 final java.io.BufferedReader reader = new java.io.BufferedReader( reader_ ); ){
+                
+                String line;
+                while( (line = reader.readLine() ) != null ){
+                    input.add( line );
+                }
             }
-            
-          } // end of try inputStream
-        } // end of try fileInputStream
-          
-        final java.awt.print.PrinterJob pj = java.awt.print.PrinterJob.getPrinterJob();
-
-        pj.setPrintable( new PrintableImplement( src , new A2prConfigure(), context)) ;
-        { 
-          javax.print.attribute.PrintRequestAttributeSet attributes =
-            new javax.print.attribute.HashPrintRequestAttributeSet();
-          attributes.add( javax.print.attribute.standard.OrientationRequested.LANDSCAPE);
-          //attributes.add(new javax.print.attribute.standard.JobName(doc.getJobName(), null));
-          final float leftMargin   = 8; 
-          final float rightMargin  = 8;
-          final float topMargin    = 8;
-          final float bottomMargin = 8;
-          
-          final javax.print.attribute.standard.MediaSize mediaSize = javax.print.attribute.standard.MediaSize.ISO.A4;
-          attributes.add(new javax.print.attribute.standard.MediaPrintableArea(leftMargin, topMargin,
-                                                                               mediaSize.getX(javax.print.attribute.standard.MediaPrintableArea.MM) - ( leftMargin + rightMargin ),
-                                                                               mediaSize.getY(javax.print.attribute.standard.MediaPrintableArea.MM) - ( topMargin + bottomMargin ),
-                                                                               javax.print.attribute.standard.MediaPrintableArea.MM));
-          
-          if( pj.printDialog(attributes) ){
-            try{
-              pj.print(attributes);
-            }catch( java.awt.print.PrinterException pe ){
-              System.err.println( pe.toString());
-            }
-          }
         }
-      }catch( java.io.FileNotFoundException fne ){
-        System.err.println( fne.toString());
-      }catch( java.io.IOException ioe ){
-        System.err.println( ioe.toString());
-      }
+        
+        final java.awt.print.PrinterJob pj = java.awt.print.PrinterJob.getPrinterJob();
+        
+        pj.setPrintable( new PrintableImplement( input , new A2prConfigure(), context)) ;
+        { 
+            final javax.print.attribute.PrintRequestAttributeSet attributes =
+                new javax.print.attribute.HashPrintRequestAttributeSet();
+            attributes.add( javax.print.attribute.standard.OrientationRequested.LANDSCAPE);
+            //attributes.add(new javax.print.attribute.standard.JobName(doc.getJobName(), null));
+            final float leftMargin   = 8; 
+            final float rightMargin  = 8;
+            final float topMargin    = 8;
+            final float bottomMargin = 8;
+            
+            final javax.print.attribute.standard.MediaSize mediaSize = javax.print.attribute.standard.MediaSize.ISO.A4;
+            attributes.add(new javax.print.attribute.standard.MediaPrintableArea(leftMargin, topMargin,
+                                                                                 mediaSize.getX(javax.print.attribute.standard.MediaPrintableArea.MM) - ( leftMargin + rightMargin ),
+                                                                                 mediaSize.getY(javax.print.attribute.standard.MediaPrintableArea.MM) - ( topMargin + bottomMargin ),
+                                                                                 javax.print.attribute.standard.MediaPrintableArea.MM));
+            
+            if( pj.printDialog(attributes) ){
+                try{
+                    pj.print(attributes);
+                }catch( java.awt.print.PrinterException pe ){
+                    System.err.println( pe.toString());
+                }
+            }
+        }
+        return;
     }
-  }
-  
-  public static void main(String[] args){
-    jobQueueFileList( args , new A2prConfigure() );
-    return;
-  }
-};
 
+    public static final void jobQueueFileList( final java.util.List<String> input_filename_list ,
+                                               final A2prConfigure configure ,
+                                               final java.nio.charset.Charset defaultCharset ){
+        for( final String input_filename : input_filename_list ){
+            final File input_file = new File( input_filename );
+            if( checkFileStatus( input_file ) ){
+                try{
+                    jobQueueFile( input_file , configure , defaultCharset );
+                }catch( final FileNotFoundException fnfe ){
+                    logger.warning( fnfe.toString() );
+                }catch( final IOException ioe ){
+                    logger.severe( ioe.toString() );
+                }
+            }
+        }
+        return;
+    }
+
+    
+    public static final void main(final String[] args){
+        final CommandLineParser commandLineParser = new DefaultParser();
+        try{
+            final A2prConfigure configure = new A2prConfigure();
+            final CommandLine commandLine = commandLineParser.parse( options , args );
+            if( commandLine.hasOption( "h" ) ){
+                return;
+            }
+
+            final java.nio.charset.Charset defaultCharset;
+
+            if( commandLine.hasOption( "e" ) ){
+                defaultCharset = java.nio.charset.Charset.forName( commandLine.getOptionValue( "e" ) );
+            }else if( commandLine.hasOption("utf-8") ){
+                defaultCharset = java.nio.charset.StandardCharsets.UTF_8;
+            }else{
+                defaultCharset = java.nio.charset.Charset.defaultCharset();
+            }
+
+            final var argList = commandLine.getArgList();
+            if( commandLine.hasOption( "f" ) ){
+                final var theFile = new ArrayList<String>();
+                theFile.add( commandLine.getOptionValue( "f" ) );
+                jobQueueFileList( theFile , configure , defaultCharset ); 
+            }else if( ! argList.isEmpty() ){
+                jobQueueFileList( argList , configure , defaultCharset );
+            }
+            /* 正常終了 */
+            return;
+        }catch( final org.apache.commons.cli.ParseException pe ){
+            logger.severe( pe.toString() );
+        }
+        return;
+    }
+}
