@@ -8,7 +8,7 @@
 @rem Copyright(C) 2022 , TOGURO Mikito
 
 setlocal 
-if not "%1"=="" call :check_file_type "%~1" .xml .c .cpp .h .java
+if not "%1"=="" call :check_file_type "%~1" .xml .c .cpp .h .java .md
 endlocal
 GOTO :EOF
 

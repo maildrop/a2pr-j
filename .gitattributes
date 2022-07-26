@@ -1,3 +1,5 @@
 * text=auto
 *.bat text eol=crlf
+*.cmd text eof=crlf
+*.png binary
 src/test/resources/**/* binary
