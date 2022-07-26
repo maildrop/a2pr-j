@@ -146,7 +146,9 @@ public final class a2pr{
         try{
             final A2prConfigure configure = new A2prConfigure();
             final CommandLine commandLine = commandLineParser.parse( options , args );
+
             if( commandLine.hasOption( "h" ) ){
+                new HelpFormatter().printHelp( "a2pr" , options );
                 return;
             }
 
@@ -172,6 +174,7 @@ public final class a2pr{
             return;
         }catch( final org.apache.commons.cli.ParseException pe ){
             logger.severe( pe.toString() );
+            new HelpFormatter().printHelp( "a2pr" , options );
         }
         return;
     }
